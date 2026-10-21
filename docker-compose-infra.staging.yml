@@ -2,7 +2,6 @@ services:
   # Reverse proxy
   caddy:
     image: caddy:2.10.2
-    container_name: caddy
     restart: always
     ports:
       - 443:8005
@@ -27,7 +26,6 @@ services:
   # MinIO object storage service
   minio:
     image: quay.io/minio/minio
-    container_name: minio
     volumes:
       - minio_data:/data # Persistent storage
     command: server /data --console-address ":9001"
@@ -65,7 +63,6 @@ services:
   # RabbitMQ Message queue to send the jobs
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
@@ -77,7 +74,6 @@ services:
   # Redis collects the results.
   redis:
     image: redis:7-alpine
-    container_name: redis
     restart: unless-stopped
     volumes:
       - redis_data:/data # Persistent storage
@@ -87,7 +83,6 @@ services:
   # PostgreSQL database service
   postgres:
     image: postgres:14-alpine
-    container_name: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -109,7 +104,6 @@ services:
   # already-imported realm must be updated via the Admin Console instead.
   keycloak:
     image: quay.io/keycloak/keycloak:26.6.3
-    container_name: keycloak
     restart: always
     # Render the realm from the template (APP_URL from env) into the import
     # dir, then start Keycloak — one service, plain `compose up` is enough.

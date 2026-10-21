@@ -2,11 +2,9 @@ services:
   # Reverse proxy
   caddy:
     image: caddy:2.10.2
-    container_name: caddy
     restart: always
     ports:
-      - "443:8005"
-      - "${CADDY_HOST_PORT:-80}:8005"
+      - "127.0.0.1:${CADDY_HOST_PORT:-8091}:8005"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro,Z
     environment:
@@ -24,7 +22,6 @@ services:
   # MinIO object storage service
   minio:
     image: pgsty/minio
-    container_name: minio
     volumes:
       - minio_data:/data # Persistent storage
     command: server /data --console-address ":9001"
@@ -64,7 +61,6 @@ services:
   # RabbitMQ Message queue to send the jobs
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: rabbitmq
     ports:
       - "5672:5672"
     environment:
@@ -78,10 +74,8 @@ services:
   # Redis collects the results.
   redis:
     image: redis:7-alpine
-    container_name: redis
     restart: unless-stopped
-    ports:
-      - "6380:6379"
+
     volumes:
       - redis_data:/data # Persistent storage
     networks:
@@ -91,13 +85,11 @@ services:
   # PostgreSQL database service
   postgres:
     image: postgres:14-alpine
-    container_name: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"
+
     volumes:
       - postgres_data:/var/lib/postgresql/data # Persistent storage
       # Creates the `controls` DB (apps/controls) on a fresh volume.
@@ -114,7 +106,6 @@ services:
   keycloak:
     # Pin a version. VERIFY the latest stable at https://www.keycloak.org/downloads
     image: quay.io/keycloak/keycloak:26.6.3
-    container_name: keycloak
     # --import-realm imports any realm file in /opt/keycloak/data/import/ on startup,
     # but ONLY creates realms that don't already exist (existing realms are left untouched).
     # Render the realm template (API_URL_EXTERNAL substituted) into the import dir at startup.
@@ -157,16 +148,13 @@ services:
   # Verified vs docs.immudb.io: gRPC 3322, web console 8080, env vars IMMUDB_*, data dir IMMUDB_DIR.
   immudb:
     image: codenotary/immudb:1.11.1     # pinned; latest stable on Docker Hub
-    container_name: immudb
     environment:
       IMMUDB_ADMIN_PASSWORD: ${IMMUDB_ADMIN_PASSWORD}   # dev admin password (from env)
       IMMUDB_FORCE_ADMIN_PASSWORD: "true"               # apply that password at startup (skip change-on-first-login)
       IMMUDB_DIR: /var/lib/immudb                        # data folder (default ./data) -> the mounted volume
     volumes:
       - immudb_data:/var/lib/immudb     # persist the ledger
-    ports:
-      - "3322:3322"             # gRPC — the Django Python SDK connects here
-      - "8086:8080"             # web console (host 8086 -> container 8080; 8080/8081 already taken)
+    
     networks:
       - backend
 

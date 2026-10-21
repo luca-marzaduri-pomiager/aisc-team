@@ -1,7 +1,6 @@
 services:
   plugin-downloader:
     image: alpine:latest
-    container_name: plugin-downloader
     command:
       - /bin/sh
       - -ec

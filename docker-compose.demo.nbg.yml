@@ -4,7 +4,6 @@ services:
     build: ../aisc-webapp/
     ports:
       - "5173:80" # Development server port
-    container_name: aisc-webapp
     environment:
       APP_API_URL: ${API_URL_EXTERNAL}
       APP_SHOW_PLUGIN_VISUALIZATION: ${SHOW_PLUGIN_VISUALIZATION}
@@ -15,7 +14,6 @@ services:
 
   aisc-backend:
     build: ../aisc-backend/
-    container_name: aisc-backend
     environment:
       S3_MODELS_BUCKET: ${S3_MODELS_BUCKET}
       S3_DATASETS_BUCKET: ${S3_DATASETS_BUCKET}
@@ -48,7 +46,6 @@ services:
   #  Evaluation service development container
   aisc-eval:
     build: ../aisc-eval/
-    container_name: aisc-eval
     # volumes:
     #   - ./eval-logging.yaml:/app/config/logging.yaml:ro
     environment:
@@ -68,7 +65,6 @@ services:
   #
   aisc-eval-worker:
     build: ../aisc-eval/
-    container_name: aisc-eval-worker
     # volumes:
     #   - ./eval-logging.yaml:/app/config/logging.yaml:ro
     environment:
@@ -93,7 +89,6 @@ services:
 
   aisc-eval-flower:
     build: ../aisc-eval/
-    container_name: aisc-eval-flower
     # volumes:
     #   - ./eval-logging.yaml:/app/config/logging.yaml:ro
     environment:
