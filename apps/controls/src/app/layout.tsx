@@ -3,7 +3,8 @@ import SiteHeader from "@/components/SiteHeader";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AISC Controls",
+  icons: { icon: `${process.env.NEXT_BASE_PATH || ""}/site-icon.svg` },
+  title: "Controls",
   description: "Compliance checklists — curate, answer, track.",
 };
 

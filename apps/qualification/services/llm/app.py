@@ -25,7 +25,7 @@ from pydantic import BaseModel
 # (ANTHROPIC_API_KEY for anthropic/*, OPENAI_API_KEY for openai/*, etc.).
 DEFAULT_MODEL = os.environ.get("LLM_MODEL", "mistral/mistral-large-latest")
 
-app = FastAPI(title="AISC LiteLLM Service", version="0.1.0")
+app = FastAPI(title="Completion Service", version="0.1.0")
 
 
 class GenerateRequest(BaseModel):

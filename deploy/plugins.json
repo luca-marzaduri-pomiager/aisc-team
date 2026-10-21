@@ -1,0 +1,9 @@
+[
+  {"id":"performance","repository":"https://github.com/lux-ai-factory/aisc-plugin-performance.git","revision":"efa55043f664807f5f471582497357bbbd1df1ad"},
+  {"id":"data-evaluation","repository":"https://github.com/lux-ai-factory/aisc-plugin-data-evaluation.git","revision":"7ed5d3e08970fa21c5e502059c6e8e69e6c13d9d"},
+  {"id":"fairness","repository":"https://github.com/lux-ai-factory/aisc-plugin-fairness.git","revision":"a04742d80c4e653e1bf75689d4b218e048b664d3"},
+  {"id":"langbite","repository":"https://github.com/lux-ai-factory/aisc-plugin-langbite.git","revision":"8e8afde7209cc97cebc6b68c8069403e0c630396"},
+  {"id":"llm-eval","repository":"https://github.com/lux-ai-factory/aisc-plugin-llm-eval.git","revision":"871ac47e53868a31c2da6f3807c6e1559929a238","sources":{"llm-eval-framework":"git+https://github.com/serval-uni-lu/llm_eval@46b3e4081b83e673f2c488e742ae34af8471df69"}},
+  {"id":"strongreject","repository":"https://github.com/lux-ai-factory/aisc-plugin-strongreject.git","revision":"6b0e15d9af442eb5723914a173ea86e39b8e9797"},
+  {"id":"explitest","repository":"https://github.com/lux-ai-factory/aisc-plugin-explitest.git","revision":"56523132c119c49a512dce0bc4dd23fc8b16f2bb","sources":{"explitest":"git+https://github.com/serval-uni-lu/ExpliTest.git@0b890752307845f524b616e43f9febf7017391c8"}}
+]

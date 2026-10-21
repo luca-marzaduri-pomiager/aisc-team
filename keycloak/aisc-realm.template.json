@@ -1,6 +1,8 @@
 {
   "id": "338c444a-2d38-407b-bd86-f991593d78d8",
   "realm": "aisc",
+  "displayName": "Workspace",
+  "displayNameHtml": "Workspace",
   "notBefore": 0,
   "defaultSignatureAlgorithm": "RS256",
   "revokeRefreshToken": false,
@@ -708,8 +710,8 @@
     {
       "id": "be919fe5-326b-4ba6-b128-10571e1ec342",
       "clientId": "aisc-webapp",
-      "name": "aisc-webapp",
-      "description": "the client for the django powered backend supported frontend aisc",
+      "name": "Workspace",
+      "description": "Browser client",
       "rootUrl": "${API_URL_EXTERNAL}",
       "adminUrl": "",
       "baseUrl": "/",

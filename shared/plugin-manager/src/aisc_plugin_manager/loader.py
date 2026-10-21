@@ -2,6 +2,8 @@ import importlib
 import inspect
 import sys
 import logging
+import os
+import json
 import tomllib
 from pathlib import Path
 from typing import Dict, Type, Iterator
@@ -37,10 +39,34 @@ def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | N
 
 
 class Loader:
+    def prepared_python(self, package_meta: dict, version: str) -> Path | None:
+        """Use a verified downloaded environment for local evaluation, if configured."""
+        root = os.getenv('AISC_PLUGIN_RUNTIME_ROOT')
+        if not root or package_meta['source'] != 'local':
+            return None
+        environment = Path(root) / 'envs' / package_meta['pkg_root'].name
+        marker = environment / 'ready.json'
+        python = environment / 'bin/python'
+        if not marker.exists() or not python.exists():
+            return None
+        metadata = json.loads(marker.read_text())
+        if metadata.get('status') == 'ready' and metadata.get('version') == version:
+            return python
+        return None
+
+    def _add_plugin_dependencies(self, package_meta: dict) -> None:
+        """Resolve downloaded plugin dependencies without replacing application packages."""
+        runtime = os.getenv('AISC_PLUGIN_RUNTIME_ROOT', '/plugin-runtime')
+        root = Path(runtime) / 'envs' / package_meta['pkg_root'].name / 'lib'
+        for site in root.glob('python*/site-packages'):
+            if str(site) not in sys.path:
+                sys.path.append(str(site))
+
     def __init__(self, local_plugin_path: str, registry_url: str, registry_index: str, registry_user: str | None = None,
                  registry_password: str | None = None):
         self.plugin_dirs = [Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)]
-        self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
+        # A registry is optional when plugins are downloaded locally.
+        self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password) if registry_url else None
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
         self._loaded_plugins: Dict[str, BaseEvaluationPlugin] = {}
 
@@ -104,6 +130,7 @@ class Loader:
 
         old_path = sys.path[:]
         try:
+            self._add_plugin_dependencies(package_meta)
             if import_path not in sys.path:
                 sys.path.insert(0, import_path)
 
@@ -180,6 +207,7 @@ class Loader:
 
         # Configure environment paths depending on the source target
         if package_meta["source"] == "local":
+            self._add_plugin_dependencies(package_meta)
             import_path = package_meta["import_path"]
             if import_path not in sys.path:
                 sys.path.insert(0, import_path)

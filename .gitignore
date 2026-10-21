@@ -57,3 +57,9 @@ Desktop.ini
 /e2e/.env.e2e
 /e2e/playwright-report/
 /e2e/test-results/
+
+# Plugins are downloaded automatically into Docker volumes.
+/aisc-presentation/plugin_sources/
+
+/.cache/
+/e2e/.browsers/

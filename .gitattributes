@@ -1,0 +1,4 @@
+# Linux entrypoints must work after a Windows Git checkout too.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf

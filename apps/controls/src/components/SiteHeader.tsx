@@ -8,8 +8,7 @@ export default function SiteHeader() {
     <header className="site-header">
       <div className="inner">
         <a href={`${basePath}/`} className="brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`${basePath}/laif-logo.svg`} alt="Luxembourg AI Factory" />
+          <span>Controls</span>
         </a>
         <nav>
           <a href={`${basePath}/checklists`}>Library</a>

@@ -15,7 +15,7 @@ test.describe('AISC platform (compose stack)', () => {
 
     // A blank page means the React app never mounted (e.g. a hung auth bootstrap).
     await expect(page.locator('#root')).not.toBeEmpty({ timeout: 60_000 });
-    await expect(page.getByText('AI Assessment Sandbox').first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText('Workspace').first()).toBeVisible({ timeout: 60_000 });
 
     expect(pageErrors, `Uncaught page errors:\n${pageErrors.join('\n')}`).toEqual([]);
     const cspErrors = consoleErrors.filter((e) => /Content Security Policy|frame-ancestors/i.test(e));

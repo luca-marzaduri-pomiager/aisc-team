@@ -1,331 +1,449 @@
-# =============================================================================
-# AISC — published-image stack (the "normal" docker-compose).
-#
-# This is the community / user entry point: it pulls pre-built images from
-# ghcr.io and starts the whole platform without cloning or building any of the
-# child repositories. All you need is this repository and a `.env` file:
-#
-#   cp env.example .env
-#   docker compose up -d
-#   open http://localhost:8080
-#
-# Contributors who want to build from source should use the development files
-# instead (docker-compose-infra.development.yml + docker-compose.development.yml);
-# see docs/DEVELOPER_GUIDE.md.
-#
-# Images are published by each child repository's CI when a tag is pushed (see
-# docs/DEVELOPER_GUIDE.md#cicd--release). Pin a specific release with
-# AISC_IMAGE_TAG in `.env` (default: latest).
-#
-# Scope: this stack runs the core platform (backend, webapp, eval). The
-# companion apps (Controls, Qualification) are not part of it yet and will be
-# added at a later date.
-# =============================================================================
-
-name: aisc
-
+# Local source builds; downloaded plugins and their dependencies stay in Docker volumes.
+name: ${COMPOSE_PROJECT_NAME:-aisc-team-local}
+x-python-build:
+  context: .
+  dockerfile: deploy/Python.Dockerfile
+x-runtime: &id001
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-demo-secret-key-change-before-sharing-publicly}
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY:-local-demo-internal-api-key}
+  CELERY_BROKER_URL: amqp://${RABBITMQ_USERNAME:-aisc}:${RABBITMQ_PASSWORD:-LocalRabbit1!}@rabbitmq:5672//
+  REDIS_BACKEND_URL: redis://redis:6379/0
+  PLUGIN_PATH: /app/plugins
+  PACKAGE_REGISTRY_URL: ''
+  PACKAGE_REGISTRY_INDEX: ''
+  PACKAGE_REGISTRY_USER: ''
+  PACKAGE_REGISTRY_PASSWORD: ''
+  API_URL: http://aisc-backend:8000
+  API_PREFIX: /api/v1/internal
+  MQ_USERNAME: ${RABBITMQ_USERNAME:-aisc}
+  MQ_PASSWORD: ${RABBITMQ_PASSWORD:-LocalRabbit1!}
+  MQ_HOST: rabbitmq
+  REDIS_HOST: redis
+  AISC_PLUGIN_RUNTIME_ROOT: /plugin-runtime
+  PYTHONPATH: ''
+  UV_CACHE_DIR: /root/.cache/uv
 services:
-  # ───────────────────────────── Reverse proxy ───────────────────────────────
   caddy:
     image: caddy:2.10.2
-    restart: unless-stopped
     ports:
-      - "${CADDY_HOST_PORT:-8080}:8005"
+    - 127.0.0.1:${AISC_PORT:-8092}:8005
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    environment:
-      LOG_FILE: "/data/access.log"
-      CADDY_DOMAIN: ${CADDY_DOMAIN:-http://localhost}
-      CADDY_PORT: "8005"
-      CADDY_ENVIRONMENT: ${CADDY_ENVIRONMENT:-development}
-      CADDY_KEYCLOAK_PATH: /auth
-    networks:
-      - backend
-      - frontend
-
-  # ─────────────────────────── Object storage (S3) ───────────────────────────
-  minio:
-    image: pgsty/minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${S3_USER}
-      MINIO_ROOT_PASSWORD: ${S3_PASSWORD}
-    volumes:
-      - minio_data:/data
+    - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      aisc-webapp:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      controls-web:
+        condition: service_healthy
+      qualification-web:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test:
+      - CMD
+      - wget
+      - -q
+      - -O
+      - /dev/null
+      - http://127.0.0.1:8005/
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aisc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-LocalPostgres1!}
+      POSTGRES_DB: aisc
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    - ./deploy/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U "$$POSTGRES_USER" -d aisc
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-aisc}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-LocalRabbit1!}
+    volumes:
+    - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test:
+      - CMD
+      - rabbitmq-diagnostics
+      - -q
+      - ping
       interval: 10s
       timeout: 10s
-      retries: 5
-    networks:
-      - backend
-
-  make_buckets:
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    command:
+    - redis-server
+    - --appendonly
+    - 'yes'
+    volumes:
+    - redis_data:/data
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  minio:
+    image: pgsty/minio
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${S3_USER:-aisc-storage}
+      MINIO_ROOT_PASSWORD: ${S3_PASSWORD:-LocalStorage1!}
+    volumes:
+    - minio_data:/data
+    healthcheck:
+      test:
+      - CMD
+      - mc
+      - ready
+      - local
+      interval: 10s
+      timeout: 10s
+      retries: 30
+  make-buckets:
     image: pgsty/minio
     depends_on:
       minio:
         condition: service_healthy
-    environment:
-      MINIO_ROOT_USER: ${S3_USER}
-      MINIO_ROOT_PASSWORD: ${S3_PASSWORD}
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc alias set minio http://minio:9000 ${S3_USER} ${S3_PASSWORD} &&
-      /usr/bin/mc mb --ignore-existing minio/datasets;
-      /usr/bin/mc mb --ignore-existing minio/artifacts;
-      /usr/bin/mc mb --ignore-existing minio/models &&
-      exit 0;
-      "
-    networks:
-      - backend
-
-  # ───────────────────────────── Message broker ──────────────────────────────
-  rabbitmq:
-    image: rabbitmq:3-management
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - backend
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --protected-mode no --appendonly yes --appendfsync everysec
-    volumes:
-      - redis_data:/data
-    networks:
-      - backend
-
-  # ─────────────────────────────── Database ──────────────────────────────────
-  postgres:
-    image: postgres:14-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      # Keycloak's dedicated database. Only runs on a fresh volume;
-      # `docker compose down -v` recreates it.
-      - ./init/keycloak.sql:/docker-entrypoint-initdb.d/30-keycloak.sql:ro
-    networks:
-      - backend
-
-  # ─────────────────────── Identity & access (SSO) ───────────────────────────
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.6.3
-    entrypoint: /bin/bash
+    entrypoint:
+    - /bin/sh
+    - -ec
     command:
-      - -c
-      - |
-        URL="$${API_URL_EXTERNAL:-http://localhost}"
-        mkdir -p /opt/keycloak/data/import
-        sed 's|$${API_URL_EXTERNAL}|'"$$URL"'|g' /tmp/aisc-realm.template.json > /opt/keycloak/data/import/aisc-realm.json
-        exec /opt/keycloak/bin/kc.sh start-dev --import-realm --proxy-headers=xforwarded
-    volumes:
-      - ./keycloak/aisc-realm.template.json:/tmp/aisc-realm.template.json:ro
-      - ./keycloak/themes:/opt/keycloak/themes:ro
-    environment:
-      API_URL_EXTERNAL: ${API_URL_EXTERNAL}
-      KC_HTTP_RELATIVE_PATH: /auth
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
-      KC_DB_USERNAME: ${POSTGRES_USER}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
-    depends_on:
-      - postgres
-    networks:
-      - backend
+    - 'mc alias set local http://minio:9000 "$$S3_USER" "$$S3_PASSWORD"
 
-  # ──────────────────────── Tamper-proof audit ledger ────────────────────────
+      mc mb --ignore-existing local/datasets
+
+      mc mb --ignore-existing local/models
+
+      mc mb --ignore-existing local/artifacts
+
+      '
+    environment:
+      S3_USER: ${S3_USER:-aisc-storage}
+      S3_PASSWORD: ${S3_PASSWORD:-LocalStorage1!}
   immudb:
     image: codenotary/immudb:1.11.1
     environment:
-      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_ADMIN_PASSWORD}
-      IMMUDB_FORCE_ADMIN_PASSWORD: "true"
+      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_ADMIN_PASSWORD:-LocalImmu1!}
+      IMMUDB_FORCE_ADMIN_PASSWORD: 'true'
       IMMUDB_DIR: /var/lib/immudb
     volumes:
-      - immudb_data:/var/lib/immudb
-    networks:
-      - backend
-
-  # ───────────────────────── Default plugin downloader ───────────────────────
-  # Temporary: clones the default evaluation plugins into a shared volume. This
-  # will be replaced by the public plugin catalogue.
-  plugin-downloader:
-    image: alpine:latest
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        apk --no-cache add git
-
-        cd /downloads
-
-        for repo in \
-          aisc-plugin-performance \
-          aisc-plugin-data-evaluation \
-          aisc-plugin-fairness \
-          aisc-plugin-langbite \
-          aisc-plugin-llm-eval \
-          aisc-plugin-strongreject \
-          aisc-plugin-explitest
-        do
-          if [ -d "$$repo/.git" ]; then
-            cd $$repo && git pull origin && cd /downloads
-          else
-            git clone https://github.com/lux-ai-factory/$$repo.git
-          fi
-        done
+    - immudb_data:/var/lib/immudb
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.3
+    environment:
+      PUBLIC_URL: http://localhost:${AISC_PORT:-8092}
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-aisc}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-LocalPostgres1!}
+      KC_HEALTH_ENABLED: 'true'
+    entrypoint:
+    - /bin/bash
+    - /deploy/keycloak.sh
     volumes:
-      - plugins_data:/downloads
-    networks:
-      - backend
-
-  # ─────────────────────────────── Webapp ────────────────────────────────────
-  aisc-webapp:
-    image: ghcr.io/lux-ai-factory/aisc-webapp:${AISC_IMAGE_TAG:-latest}
-    platform: linux/amd64
-    restart: unless-stopped
-    environment:
-      APP_API_URL: ${API_URL_EXTERNAL}
-      APP_SHOW_PLUGIN_VISUALIZATION: ${SHOW_PLUGIN_VISUALIZATION}
-      APP_SHOW_CELERY_TASKS: ${SHOW_CELERY_TASKS}
-      # Injected into the built JS at container start (env.sh substitutes APP_*).
-      APP_KEYCLOAK_URL: ${KEYCLOAK_URL_EXTERNAL}
-      APP_CATALOG_URL: ${CATALOG_URL}
-    depends_on:
-      - aisc-backend
-    networks:
-      - frontend
-
-  # ──────────────────────────────── Backend ──────────────────────────────────
-  aisc-backend:
-    image: ghcr.io/lux-ai-factory/aisc-backend:${AISC_IMAGE_TAG:-latest}
-    platform: linux/amd64
-    restart: unless-stopped
-    environment:
-      S3_MODELS_BUCKET: ${S3_MODELS_BUCKET}
-      S3_DATASETS_BUCKET: ${S3_DATASETS_BUCKET}
-      S3_ARTIFACTS_BUCKET: ${S3_ARTIFACTS_BUCKET}
-      S3_URL: ${S3_URL}
-      S3_USER: ${S3_USER}
-      S3_PASSWORD: ${S3_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_ENGINE: ${DB_ENGINE}
-      BACKEND_CORS_ALLOWED_ORIGINS: ${BACKEND_CORS_ALLOWED_ORIGINS}
-      BACKEND_CSRF_TRUSTED_ORIGINS: ${BACKEND_CSRF_TRUSTED_ORIGINS}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
-      ENABLE_SSL_PROXY: "true"
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      REDIS_BACKEND_URL: ${REDIS_BACKEND_URL}
-      PLUGIN_PATH: /app/local_plugins
-      PACKAGE_REGISTRY_URL: ${PACKAGE_REGISTRY_URL}
-      PACKAGE_REGISTRY_USER: ${PACKAGE_REGISTRY_USER}
-      PACKAGE_REGISTRY_PASSWORD: ${PACKAGE_REGISTRY_PASSWORD}
-      PACKAGE_REGISTRY_INDEX: ${PACKAGE_REGISTRY_INDEX}
-      IMMUDB_URL: immudb:3322
-      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_ADMIN_PASSWORD}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      AUTH_ENABLED: ${AUTH_ENABLED}
-      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
-      KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL}
-      MODEL_LISTING_SSL_VERIFY: ${MODEL_LISTING_SSL_VERIFY}
+    - ./keycloak/aisc-realm.template.json:/tmp/realm.json:ro
+    - ./keycloak/themes:/opt/keycloak/themes:ro
+    - ./deploy/keycloak.sh:/deploy/keycloak.sh:ro
     depends_on:
       postgres:
-        condition: service_started
-      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9000; printf "GET /auth/health/ready
+        HTTP/1.0\r\n\r\n" >&3; grep -q "200 OK" <&3'
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 40s
+  aisc-backend:
+    build:
+      context: .
+      dockerfile: deploy/Python.Dockerfile
+      args:
+        APP: backend
+    command:
+    - sh
+    - -ec
+    - python manage.py migrate --noinput && exec uvicorn config.asgi:application --host
+      0.0.0.0 --port 8000 --no-access-log
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-demo-secret-key-change-before-sharing-publicly}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-local-demo-internal-api-key}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USERNAME:-aisc}:${RABBITMQ_PASSWORD:-LocalRabbit1!}@rabbitmq:5672//
+      REDIS_BACKEND_URL: redis://redis:6379/0
+      PLUGIN_PATH: /app/plugins
+      PACKAGE_REGISTRY_URL: ''
+      PACKAGE_REGISTRY_INDEX: ''
+      PACKAGE_REGISTRY_USER: ''
+      PACKAGE_REGISTRY_PASSWORD: ''
+      API_URL: http://aisc-backend:8000
+      API_PREFIX: /api/v1/internal
+      PYTHONPATH: ''
+      MQ_USERNAME: ${RABBITMQ_USERNAME:-aisc}
+      MQ_PASSWORD: ${RABBITMQ_PASSWORD:-LocalRabbit1!}
+      MQ_HOST: rabbitmq
+      REDIS_HOST: redis
+      AISC_PLUGIN_RUNTIME_ROOT: /plugin-runtime
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: aisc
+      DB_USER: ${POSTGRES_USER:-aisc}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-LocalPostgres1!}
+      DB_HOST: postgres
+      DB_PORT: '5432'
+      S3_URL: http://minio:9000
+      S3_USER: ${S3_USER:-aisc-storage}
+      S3_PASSWORD: ${S3_PASSWORD:-LocalStorage1!}
+      AUTH_ENABLED: 'true'
+      KEYCLOAK_ISSUER: http://localhost:${AISC_PORT:-8092}/auth/realms/aisc
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/aisc/protocol/openid-connect/certs
+      BACKEND_CORS_ALLOWED_ORIGINS: http://localhost:${AISC_PORT:-8092}
+      IMMUDB_URL: immudb:3322
+      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_ADMIN_PASSWORD:-LocalImmu1!}
+      BACKEND_CSRF_TRUSTED_ORIGINS: http://localhost:${AISC_PORT:-8092}
+      S3_DATASETS_BUCKET: datasets
+      S3_MODELS_BUCKET: models
+      S3_ARTIFACTS_BUCKET: artifacts
+      MODEL_LISTING_SSL_VERIFY: 'true'
+      UV_CACHE_DIR: /root/.cache/uv
+      APP_NAME: Workspace API
+    volumes:
+    - plugins_data:/app/plugins:ro
+    - plugin_runtime:/plugin-runtime:ro
+    - uv_cache:/root/.cache/uv
+    depends_on:
+      plugin-downloader:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      make-buckets:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       immudb:
         condition: service_started
-      redis:
-        condition: service_started
-      rabbitmq:
-        condition: service_started
-      plugin-downloader:
-        condition: service_completed_successfully
-    volumes:
-      - plugins_data:/app/plugins
-      - ${PLUGIN_PATH:-local_plugins_data}:/app/local_plugins
-    networks:
-      - backend
-
-  # ─────────────────────── Evaluation worker (+ Flower) ──────────────────────
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/openapi.json',timeout=5)
+      interval: 10s
+      timeout: 7s
+      retries: 40
+      start_period: 30s
+  aisc-webapp:
+    build: ./apps/webapp
+    environment:
+      APP_API_URL: http://localhost:${AISC_PORT:-8092}
+      APP_KEYCLOAK_URL: http://localhost:${AISC_PORT:-8092}/auth
+      APP_CATALOG_URL: ${CATALOG_URL:-}
+      APP_SHOW_PLUGIN_VISUALIZATION: 'true'
+      APP_SHOW_CELERY_TASKS: 'true'
+    depends_on:
+      aisc-backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - -q
+      - -O
+      - /dev/null
+      - http://127.0.0.1/
+      interval: 10s
+      timeout: 5s
+      retries: 30
   aisc-eval-worker:
-    image: ghcr.io/lux-ai-factory/aisc-eval:${AISC_IMAGE_TAG:-latest}
-    platform: linux/amd64
-    restart: unless-stopped
-    environment:
-      API_URL: ${API_URL}
-      API_PREFIX: ${API_PREFIX}
-      REDIS_BACKEND_URL: ${REDIS_BACKEND_URL}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CORS_ORIGINS: "*"
-      PLUGIN_PATH: /app/local_plugins
-      PACKAGE_REGISTRY_URL: ${PACKAGE_REGISTRY_URL}
-      PACKAGE_REGISTRY_USER: ${PACKAGE_REGISTRY_USER}
-      PACKAGE_REGISTRY_PASSWORD: ${PACKAGE_REGISTRY_PASSWORD}
-      PACKAGE_REGISTRY_INDEX: ${PACKAGE_REGISTRY_INDEX}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
-    depends_on:
-      - aisc-backend
-      - rabbitmq
-      - redis
-      - plugin-downloader
-    volumes:
-      - plugins_data:/app/plugins
-      - ${PLUGIN_PATH:-local_plugins_data}:/app/local_plugins
-    networks:
-      - backend
-
-  aisc-eval-flower:
-    image: ghcr.io/lux-ai-factory/aisc-eval:${AISC_IMAGE_TAG:-latest}
-    platform: linux/amd64
-    restart: unless-stopped
-    environment:
-      REDIS_BACKEND_URL: ${REDIS_BACKEND_URL}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CORS_ORIGINS: "*"
-      FLOWER_URL_PREFIX: flower
-      FLOWER_UNAUTHENTICATED_API: "true"
+    build:
+      context: .
+      dockerfile: deploy/Python.Dockerfile
+      args:
+        APP: eval
     command:
-      - celery
-      - -A
-      - aisc_eval.celery_worker:celery_app
-      - flower
-      - --db=/data/flower.db
-      - --persistent=True
-    depends_on:
-      - aisc-eval-worker
-      - rabbitmq
-      - redis
+    - celery
+    - -A
+    - aisc_eval.celery_worker:celery_app
+    - worker
+    - --loglevel=info
+    - --concurrency=2
+    environment: *id001
     volumes:
-      - flower_data:/data
-    networks:
-      - backend
-
+    - plugins_data:/app/plugins:ro
+    - plugin_runtime:/plugin-runtime:ro
+    - uv_cache:/root/.cache/uv
+    depends_on:
+      aisc-backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - celery -A aisc_eval.celery_worker:celery_app inspect ping -d celery@$$HOSTNAME
+        --timeout 5
+      interval: 30s
+      timeout: 10s
+      retries: 10
+  aisc-eval-flower:
+    build:
+      context: .
+      dockerfile: deploy/Python.Dockerfile
+      args:
+        APP: eval
+    command:
+    - celery
+    - -A
+    - aisc_eval.celery_worker:celery_app
+    - flower
+    - --url_prefix=flower
+    environment: *id001
+    volumes:
+    - plugins_data:/app/plugins:ro
+    - plugin_runtime:/plugin-runtime:ro
+    - uv_cache:/root/.cache/uv
+    depends_on:
+      aisc-eval-worker:
+        condition: service_started
+  controls-pdf:
+    build: ./apps/controls/services/pdf_renderer
+  controls-migrate:
+    build:
+      context: ./apps/controls
+      args:
+        NEXT_BASE_PATH: /controls
+    command:
+    - sh
+    - -ec
+    - npx prisma migrate deploy && npx prisma db seed
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aisc}:${POSTGRES_PASSWORD:-LocalPostgres1!}@postgres:5432/controls?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+  controls-web:
+    build:
+      context: ./apps/controls
+      args:
+        NEXT_BASE_PATH: /controls
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aisc}:${POSTGRES_PASSWORD:-LocalPostgres1!}@postgres:5432/controls?schema=public
+      PDF_RENDERER_URL: http://controls-pdf:8005
+      AISC_BACKEND_URL: http://aisc-backend:8000
+      AISC_PLATFORM: '1'
+    depends_on:
+      controls-migrate:
+        condition: service_completed_successfully
+      controls-pdf:
+        condition: service_started
+    healthcheck:
+      test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:3000/controls').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 10s
+      retries: 40
+  qualification-pdf:
+    build: ./apps/qualification/services/system_card_renderer
+  qualification-llm:
+    build: ./apps/qualification/services/llm
+    environment:
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${QUALIFICATION_LLM_MODEL:-mistral/mistral-large-latest}
+  qualification-migrate:
+    build:
+      context: ./apps/qualification
+      args:
+        NEXT_BASE_PATH: /qualification
+    command:
+    - sh
+    - -ec
+    - npx prisma migrate deploy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aisc}:${POSTGRES_PASSWORD:-LocalPostgres1!}@postgres:5432/qualification?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+  qualification-web:
+    build:
+      context: ./apps/qualification
+      args:
+        NEXT_BASE_PATH: /qualification
+    command:
+    - npx
+    - next
+    - start
+    - -p
+    - '3000'
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aisc}:${POSTGRES_PASSWORD:-LocalPostgres1!}@postgres:5432/qualification?schema=public
+      LLM_SERVICE_URL: http://qualification-llm:4000
+      SYSTEM_CARD_RENDERER_URL: http://qualification-pdf:8005
+      AISC_BACKEND_URL: http://aisc-backend:8000
+    depends_on:
+      qualification-migrate:
+        condition: service_completed_successfully
+      qualification-pdf:
+        condition: service_started
+      qualification-llm:
+        condition: service_started
+    healthcheck:
+      test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:3000/qualification').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 10s
+      retries: 40
+  plugin-downloader:
+    build:
+      context: .
+      dockerfile: deploy/Python.Dockerfile
+      args:
+        APP: backend
+    entrypoint:
+    - python
+    - /deploy/bootstrap_plugins.py
+    environment:
+      UV_HTTP_TIMEOUT: '180'
+      UV_INDEX_STRATEGY: unsafe-best-match
+      UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+      GIT_TERMINAL_PROMPT: '0'
+      UV_LINK_MODE: copy
+    volumes:
+    - plugins_data:/app/plugins
+    - plugin_runtime:/plugin-runtime
+    - uv_cache:/root/.cache/uv
 volumes:
-  immudb_data:
-  local_plugins_data:
-  minio_data:
-  plugins_data:
-  postgres_data:
-  rabbitmq_data:
-  redis_data:
-  flower_data:
-
-networks:
-  backend:
-  frontend:
+  postgres_data: null
+  rabbitmq_data: null
+  redis_data: null
+  minio_data: null
+  immudb_data: null
+  plugins_data: null
+  plugin_runtime: null
+  uv_cache: null

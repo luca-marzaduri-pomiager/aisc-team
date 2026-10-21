@@ -287,18 +287,13 @@ const TopBar: React.FC = () => {
                         }}
                     >
                         <Box display="flex" alignItems="center" gap={1}>
-                            <img
-                                src="/laif_logo.png"
-                                alt="Luxembourg AI Factory Logo"
-                                height={50}
-                            />
                             <Typography
                                 variant="h6"
                                 noWrap
                                 component="div"
                                 sx={{ ml: 0 }}
                             >
-                                AI Assessment Sandbox
+                                Workspace
                             </Typography>
                         </Box>
                     </NavLink>
@@ -317,17 +312,22 @@ const TopBar: React.FC = () => {
 
                 <div style={{flexGrow: 1}}/>
                 <Box sx={{display: 'flex', alignItems: 'center', gap: 1}}>
+                    <Tooltip title={import.meta.env.VITE_CATALOG_URL?.trim() ? 'Open public catalogue' : 'Public catalogue is not configured'}>
+                    <span>
                     <Button
                         color="inherit"
                         variant="outlined"
                         size="small"
                         onClick={openPublicCatalogue}
+                        disabled={!import.meta.env.VITE_CATALOG_URL?.trim()}
                         className="catalogue-btn"
                         sx={{textTransform: 'none'}}
                     >
                         <Icon sx={{fontSize: 18, mr: 0.5}}>storefront</Icon>
                         Public Catalogue
                     </Button>
+                    </span>
+                    </Tooltip>
                     {supportsProtocolHandler && (
                         <Tooltip title="Register this app to handle one-click installs from the public catalogue">
                             <span>
@@ -337,6 +337,7 @@ const TopBar: React.FC = () => {
                                     size="small"
                                     disabled={registering}
                                     onClick={handleRegisterProtocol}
+                                    aria-label="Register plugin links"
                                     sx={{textTransform: 'none', minWidth: 0}}
                                 >
                                     <Icon sx={{fontSize: 18}}>link</Icon>

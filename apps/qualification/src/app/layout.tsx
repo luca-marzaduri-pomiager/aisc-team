@@ -3,7 +3,8 @@ import SiteHeader from "@/components/SiteHeader";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI System Qualification",
+  icons: { icon: `${process.env.NEXT_BASE_PATH || ""}/site-icon.svg` },
+  title: "Qualification",
   description: "Qualify an AI system and generate its system card",
 };
 

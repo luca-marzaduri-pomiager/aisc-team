@@ -149,6 +149,12 @@ def install_package(self, package_name: str, version: str, evaluation_pid: uuid.
 
     plugin_info = available_versions[version]
 
+    # The default downloader has already installed and validated these dependencies.
+    # Keep the original dynamic installation path for other locally added packages.
+    if plugin_loader.prepared_python(plugin_info, version):
+        logger.info("Using prepared environment for %s==%s", package_name, version)
+        return
+
     try:
         if plugin_info["source"] == "local":
             install_target = str(plugin_info["pkg_root"].resolve())
@@ -162,7 +168,7 @@ def install_package(self, package_name: str, version: str, evaluation_pid: uuid.
                 capture_output=True, text=True, timeout=60, check=True,
             )
             install_cmd = ["uv", "pip", "install", "--python", str(cache_venv)]
-            extra_url = plugin_loader.devpi_client.simple_index_url
+            extra_url = plugin_loader.devpi_client.simple_index_url if plugin_loader.devpi_client else None
             if extra_url:
                 try:
                     urllib.request.urlopen(extra_url, timeout=2.0, context=ssl._create_unverified_context())
@@ -358,25 +364,33 @@ def run_plugin(self, package_name: str, plugin_name: str, version: str, plugin_c
         venv_dir = workspace_path / "venv"
         venv_python = venv_dir / "bin" / "python"
 
-        # Step 1: Create isolated venv
-        logger.debug(f"Creating isolated venv at {venv_dir}")
-        venv_result = subprocess.run(
-            ["uv", "venv", str(venv_dir), "--python", "/usr/local/bin/python"],
-            capture_output=True, text=True, timeout=1000,
-        )
-        if venv_result.returncode != 0:
-            mark_plugin_failed(evaluation_pid, evaluation_plugin_pid, venv_result.stderr)
-            raise RuntimeError(f"Failed to create venv: {venv_result.stderr}")
+        prepared_python = plugin_loader.prepared_python(plugin_info, version)
+        if prepared_python:
+            # Each default plugin keeps its own dependencies; evaluation inputs and
+            # outputs still run in the original per-evaluation temporary workspace.
+            venv_python = prepared_python
+            venv_result = subprocess.CompletedProcess([], 0, stdout="Using prepared plugin environment", stderr="")
+            install_result = subprocess.CompletedProcess([], 0, stdout="Dependencies prepared at startup", stderr="")
+        else:
+            # Step 1: Create isolated venv
+            logger.debug(f"Creating isolated venv at {venv_dir}")
+            venv_result = subprocess.run(
+                ["uv", "venv", str(venv_dir), "--python", "/usr/local/bin/python"],
+                capture_output=True, text=True, timeout=1000,
+            )
+            if venv_result.returncode != 0:
+                mark_plugin_failed(evaluation_pid, evaluation_plugin_pid, venv_result.stderr)
+                raise RuntimeError(f"Failed to create venv: {venv_result.stderr}")
 
-        # Step 2: Install plugin and dependencies into the venv
-        logger.debug(f"Installing {install_target} into isolated venv")
-        install_result = subprocess.run(
-            ["uv", "pip", "install", "--python", str(venv_dir), "--offline", install_target],
-            capture_output=True, text=True, timeout=1000,
-        )
-        if install_result.returncode != 0:
-            mark_plugin_failed(evaluation_pid, evaluation_plugin_pid, install_result.stderr)
-            raise RuntimeError(f"Failed to install plugin: {install_result.stderr}")
+            # Step 2: Install plugin and dependencies into the venv
+            logger.debug(f"Installing {install_target} into isolated venv")
+            install_result = subprocess.run(
+                ["uv", "pip", "install", "--python", str(venv_dir), "--offline", install_target],
+                capture_output=True, text=True, timeout=1000,
+            )
+            if install_result.returncode != 0:
+                mark_plugin_failed(evaluation_pid, evaluation_plugin_pid, install_result.stderr)
+                raise RuntimeError(f"Failed to install plugin: {install_result.stderr}")
 
         # Step 3: Run plugin script with the isolated venv's Python
         logger.debug(f"Running plugin with: {venv_python} {runtime_script}")

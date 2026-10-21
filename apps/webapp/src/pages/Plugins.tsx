@@ -1,3 +1,4 @@
+import { packageLabel } from "../utils/packageLabel";
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import {API_VERSION_PREFIX} from "../config.tsx";
 import {useProject} from '../context/ProjectContext';
@@ -214,12 +215,12 @@ function Plugins() {
             >
                 {projectPackages.map((pkg: ProjectPackage) => {
                     const isEnabled = Boolean(pkg.enabled);
-                    const inputId = `pkg-${pkg.package_name}-${pkg.version}`;
-                    const packageKey = `${pkg.package_name}::${pkg.version}`;
+                    const inputId = `pkg-${packageLabel(pkg.package_name)}-${pkg.version}`;
+                    const packageKey = `${packageLabel(pkg.package_name)}::${pkg.version}`;
                     const isPackagePending = Boolean(pendingPackages[packageKey]);
 
                     return (
-                        <Grid key={`${pkg.package_name}-${pkg.version}-${pkg.source}`} size={{xs: 12, sm: 12, md: 6, lg: 4}}>
+                        <Grid key={`${packageLabel(pkg.package_name)}-${pkg.version}-${pkg.source}`} size={{xs: 12, sm: 12, md: 6, lg: 4}}>
                             <Card
                                 className="package-card-focus"
                                 sx={{
@@ -264,7 +265,7 @@ function Plugins() {
                                 <CardContent sx={{display: 'flex', alignItems: 'flex-start', gap: 1.5}}>
                                     <Box sx={{flex: 1}}>
                                         <Typography variant="subtitle1" fontWeight={600} color="text.primary">
-                                            {pkg.package_name}
+                                            {packageLabel(pkg.package_name)}
                                         </Typography>
 
                                         <Box sx={{display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center'}}>

@@ -10,8 +10,7 @@
                     </a>
                 </div>
                 <div class="login-header">
-                    <img src="${url.resourcesPath}/img/laif_logo.png" alt="Logo" class="login-logo" />
-                    <h1 class="login-title">Sign in to AISC</h1>
+                    <h1 class="login-title">Sign in</h1>
                 </div>
 
                 <div class="login-body">

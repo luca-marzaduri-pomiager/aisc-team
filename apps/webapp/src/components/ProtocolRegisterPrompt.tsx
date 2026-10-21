@@ -18,7 +18,7 @@ export default function ProtocolRegisterPrompt() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!isProtocolHandlerSupported()) return;
+    if (!import.meta.env.VITE_CATALOG_URL?.trim() || !isProtocolHandlerSupported()) return;
     // Mark as shown immediately so it only appears once, even if dismissed.
     const shown = localStorage.getItem(PROMPT_SHOWN_KEY) === '1';
     if (!shown) {

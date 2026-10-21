@@ -1,4 +1,4 @@
-import { Box, Button, Dialog, DialogContent, Typography } from "@mui/material";
+import { Button, Dialog, DialogContent, Typography } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import "./LoginDialog.css";
 
@@ -8,11 +8,8 @@ export default function LoginDialog() {
   return (
     <Dialog open={!authenticated} maxWidth="xs" fullWidth>
       <DialogContent>
-        <Box display="flex" justifyContent="center" mb={2}>
-          <Box component="img" src="/laif_logo.png" alt="Logo" className="login-dialog-logo" />
-        </Box>
         <Typography variant="h5" className="login-dialog-title" textAlign="center">
-          AI Assessment Sandbox
+          Workspace
         </Typography>
         <Typography variant="body1" color="text.secondary" textAlign="center" mb={3}>
           Sign in to continue

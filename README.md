@@ -1,197 +1,108 @@
-# AI Assessment Sandbox Configurator (AISC)
+# Installazione locale
 
-The **AI Assessment Sandbox Configurator** is a platform for evaluating and
-assessing risks in AI systems. It lets you upload models and datasets, configure
-and run evaluation plugins, and collect the results.
+La piattaforma permette di caricare modelli e dataset, configurare i plugin ed eseguire valutazioni. Questa distribuzione mantiene frontend, backend Django, worker Celery e download automatico dei plugin originali. Include anche Controls e Qualification con i relativi servizi PDF e LLM. Il Public Catalogue esterno non viene avviato né richiesto; il relativo pulsante è visibile ma disabilitato quando `CATALOG_URL` è vuoto; gestione, configurazione e utilizzo dei plugin interni restano disponibili.
 
-## 📚 Documentation
+## Requisiti
 
-The official documentation lives in the [**lux-ai-factory/rfc**](https://github.com/lux-ai-factory/rfc)
-repository. It explains the **architecture** and the **mission** of the AI
-Assessment Sandbox Configurator, describes the **Catalogue** of tests and
-controls, and provides a **guide for users**.
+- Git, Docker Engine/Docker Desktop con container Linux e Docker Compose v2 recente (`docker compose version`).
+- Connessione Internet per immagini, pacchetti Python/npm e repository GitHub pubblici.
+- Consigliati almeno 16 GB di RAM assegnati a Docker e 25 GB liberi: alcuni plugin scaricano dipendenze ML consistenti. Il primo avvio può richiedere parecchi minuti.
+- Porta locale 8092 libera. Tutti gli altri servizi comunicano tramite la rete Docker; non richiedono porte host dedicate.
 
-As the name suggests, it is also a **Request for Comments**: anyone who wishes to
-contribute is warmly invited to share their feedback.
+## Clonazione e avvio
 
-See also:
-
-| Document | What it covers |
-| --- | --- |
-| [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Building from source, local development, plugin development, CI/CD and releases |
-
----
-
-## 🚀 Getting Started (users)
-
-Everything below runs the **core platform from published container images**.
-You do **not** need to clone the child repositories (backend, webapp, eval) or
-build anything locally.
-
-> The companion **Controls** and **Qualification** apps are not part of this
-> stack yet and will be added at a later date.
-
-### Prerequisites
-
-- **Docker Engine 24+** (or Docker Desktop) with the **Compose v2** plugin
-  i.e. the `docker compose` command.
-- **Git**.
-- ~5 GB of free disk space for images, containers and volumes.
-- A free host port for the platform (default **8080**).
-
-
-### Run it
+Clonare la repository GitHub consegnata dal proprietario:
 
 ```bash
-# 1. Clone the parent repository only — no submodules needed
-git clone https://github.com/lux-ai-factory/aisc.git
-cd aisc
-
-# 2. Create your local configuration
-cp env.example .env
-
-# 3. Start the platform (pulls pre-built images from ghcr.io)
-docker compose up -d
+git clone <URL_GITHUB_DI_QUESTA_REPOSITORY> aisc-team
+cd aisc-team
+docker compose up -d --build
 ```
 
-The **first** start downloads the images and clones the default evaluation
-plugins, so it can take a few minutes. (The bundled plugin downloader is
-temporary and will be replaced by the public plugin catalogue.) 
+Non servono submodule, copie dei repository dei plugin o un file `.env`: i valori dimostrativi sono già definiti nel Compose. Le applicazioni e le librerie condivise vengono compilate dai sorgenti inclusi. Il downloader originale scarica i sette repository predefiniti nei volumi Docker; le revisioni sono fissate in [deploy/plugins.json](deploy/plugins.json). Le dipendenze applicative usano i lockfile; quelle transitive dei plugin possono ancora variare secondo i vincoli upstream.
 
-When the stack is up, open:
+Attendere che il downloader termini e che i servizi risultino sani:
 
-**👉 http://localhost:8080**
+```bash
+docker compose ps -a
+docker compose logs -f plugin-downloader
+```
 
-Sign in with the bundled demo Keycloak users (see `keycloak/aisc-realm.template.json`):
+Un errore di download/installazione viene segnalato nei log e impedisce l'avvio del backend: nessun plugin predefinito viene escluso silenziosamente. Corretto il problema di rete o di dipendenze, ripetere il comando di avvio. I plugin già installati vengono riutilizzati.
 
-| User | Password | Role |
+Aprire **http://localhost:8092** nel browser (usare `localhost`, coerente con gli URL SSO).
+
+| Accesso | Utente | Password locale iniziale |
 | --- | --- | --- |
-| `user` | `user` | regular user |
-| `admin` | `admin` | administrator |
+| Webapp, utente originale | `user` | `user` |
+| Webapp, amministratore originale | `admin` | `admin` |
+| Console Keycloak, realm master | `admin` | `admin` |
 
-> ⚠️ These credentials, and the default passwords in `env.example`, are for
-> **local evaluation only**. Change them in `.env` before exposing the stack.
+Il realm e gli utenti sono quelli del template originale, senza progetti precompilati né creazione automatica di utenti Django. La registrazione è disabilitata nel template upstream originale (`registrationAllowed: false`). Le password degli utenti applicativi si gestiscono nella console Keycloak. Il login usa Keycloak e redirect sullo stesso indirizzo della webapp. Il backend verifica issuer pubblico e chiavi JWKS sulla rete interna. Credenziali solo dimostrative: il proxy ascolta esclusivamente su loopback. Non usare questa configurazione per pubblicare un servizio Internet.
 
-### What you get
-
-| URL | Service |
+| Percorso | Servizio |
 | --- | --- |
-| http://localhost:8080 | **Platform webapp** (evaluations, models, datasets) |
-| http://localhost:8080/admin | Django admin |
-| http://localhost:8080/api/docs | Backend API (OpenAPI) |
-| http://localhost:8080/auth/ | Keycloak single sign-on |
-| http://localhost:8080/flower/ | Celery / evaluation task monitor |
+| `/` | Webapp AISC |
+| `/api/docs` | Documentazione API |
+| `/admin/` | Django admin |
+| `/auth/admin/` | Console Keycloak |
+| `/flower/` | Monitor Celery |
+| `/controls` | Controls |
+| `/qualification` | Qualification |
 
-### Configuration
+I percorsi `/api/v1/internal/*` sono bloccati dal proxy; il worker li raggiunge direttamente sulla rete Docker.
 
-All settings live in `.env` (created from `env.example`). The most useful ones:
+## Configurazione facoltativa
 
-| Variable | Default | Description |
+Per personalizzare i valori, copiare `env.example` in `.env` oppure impostare variabili nell'ambiente prima del comando di avvio. Non versionare `.env`. Tutte le credenziali dimostrative sono sostituibili senza modificare il codice.
+
+- `AISC_PORT`: unica porta host. Cambiandola si aggiornano automaticamente URL frontend, backend, issuer e redirect Keycloak. Se 8092 è occupata, scegliere una porta libera in `.env` e ripetere `docker compose up -d --build`.
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `S3_USER`, `S3_PASSWORD`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, `IMMUDB_ADMIN_PASSWORD`: credenziali infrastruttura. Per i valori inseriti in URL di connessione usare caratteri compatibili con gli URL.
+- `DJANGO_SECRET_KEY` e `INTERNAL_API_KEY`: chiavi locali condivise automaticamente da backend e worker.
+- `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`: amministratore iniziale della console Keycloak. Gli utenti applicativi restano quelli del realm originale.
+- `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`, `QUALIFICATION_LLM_MODEL`: servizio LLM di Qualification; senza chiave le richieste al provider non possono funzionare.
+
+Le credenziali e gli URL del realm vengono inizializzati al primo avvio. Con dati già esistenti, modificare utenti e redirect nella console Keycloak; cambiare `.env` non sovrascrive utenti/database già inizializzati. Non eliminare volumi per aggiornare le password. Cambiare `DJANGO_SECRET_KEY` impedisce la lettura dei segreti dei plugin precedentemente cifrati.
+
+## Plugin predefiniti
+
+| Repository scaricato | Pacchetto | Requisiti per una valutazione |
 | --- | --- | --- |
-| `CADDY_HOST_PORT` | `8080` | Host port the platform is served on |
-| `AISC_IMAGE_TAG` | `latest` | Image tag to pull; pin a release (e.g. `v1.3.0`) for a reproducible stack |
-| `MISTRAL_API_KEY` / `ANTHROPIC_API_KEY` | *(empty)* | Provider key for the Qualification LLM sidecar |
-| `POSTGRES_PASSWORD`, `S3_PASSWORD`, `DJANGO_SECRET_KEY`, `INTERNAL_API_KEY`, `IMMUDB_ADMIN_PASSWORD` | dev values | Change before exposing the stack |
-| `AUTH_ENABLED` | `true` | Keycloak authentication for the API |
+| `aisc-plugin-performance` | `predictive-insights` | Modello ONNX e dataset tabellare compatibile; nessuna API key |
+| `aisc-plugin-data-evaluation` | `data-monitor` | Dataset di riferimento/test e configurazione delle colonne; nessuna API key |
+| `aisc-plugin-fairness` | `fairness-awareness` | Modello/dataset e attributi sensibili da configurare; nessuna API key |
+| `aisc-plugin-langbite` | `aisc-plugin-langbite` | Dataset/prompt, modello e provider scelto: API key o servizio/modello locale secondo configurazione |
+| `aisc-plugin-llm-eval` | `aisc-plugin-llm-eval` | Dipendenza esterna `llm_eval`; metriche LLM judge richiedono un endpoint/modello e, se previsto, una API key |
+| `aisc-plugin-strongreject` | `aisc-plugin-strongreject` | Dataset e configurazione target/judge; normalmente endpoint e API key. Gli extra del valutatore fine-tuned non sono installati dal percorso standard upstream |
+| `aisc-plugin-explitest` | `explitest-plugin` | Modello e dataset compatibili, configurazione delle feature; eventuali requisiti del metodo scelto |
 
-After editing `.env`, apply the changes with `docker compose up -d`.
+I pacchetti sono disponibili nella gestione interna dei plugin: creare un progetto, abilitare le implementazioni desiderate e configurarne input e parametri. API key e endpoint dei plugin vanno configurati negli input/impostazioni di progetto previsti dal plugin. Installazione/importazione riuscita non equivale a una valutazione verificata per ogni modello e provider.
 
+### Dipendenza esterna di llm-eval
 
-## 📁 Repository structure
+Il wrapper `aisc-plugin-llm-eval` è mantenuto tra i sette download. Il codice della dipendenza [serval-uni-lu/llm_eval](https://github.com/serval-uni-lu/llm_eval) **non è incluso nella repository**: viene scaricato durante l'installazione nel volume Docker, alla revisione indicata nel manifest. Il download tecnico non risolve eventuali limiti di licenza e non attribuisce diritti di redistribuzione. Verificare separatamente le condizioni della dipendenza e dei modelli/provider prima di ridistribuire immagini o usarli oltre la prova locale. Non considerare la licenza del wrapper come autorizzazione per tutte le dipendenze.
 
-The parent repository wires together the applications and shared libraries. They
-are git submodules.
-
-### Applications (`apps/`)
-*   **Webapp (`apps/webapp`)**: React frontend for the platform.
-*   **Backend (`apps/backend`)**: Django app that manages datasets, models and evaluation requests.
-*   **Evaluation Service (`apps/eval`)**: Celery worker that executes evaluation tasks via plugins.
-*   **Controls (`apps/controls`)**: Next.js app for AI-compliance checklists. _Not part of the default stack yet._
-*   **Qualification (`apps/qualification`)**: Next.js app for EU AI Act qualification and system cards. _Not part of the default stack yet._
-
-### Shared libraries (`shared/`)
-*   **Plugin Interface (`shared/plugin-interface`)**: the standard interface every AISC plugin implements.
-*   **Plugin Manager (`shared/plugin-manager`)**: discovers, loads and runs plugins (used by backend + eval).
-
-### Compose files
-
-| File | Purpose |
-| --- | --- |
-| **`docker-compose.yml`** | **Users** — pulls published images and runs the core platform. |
-| `docker-compose-infra.development.yml` + `docker-compose.development.yml` | **Contributors** — builds the apps from source with hot reload. |
-| `docker-compose.plugin_downloader.yml` | Optional plugin fetcher used by the development flow. |
-| `docker-compose.staging.yml`, `docker-compose-infra.staging.yml`, `docker-compose.demo.nbg.yml` | Historical staging / demo deployments. |
-
----
-
-## 🛠️ Developing
-
-Interested in changing the platform itself, or writing evaluation plugins? Start
-with the **[Developer Guide](docs/DEVELOPER_GUIDE.md)**.
-
-Quick reference for the two most common contributor workflows:
-
-**Develop a plugin** (run the released stack, mount your local plugin folder):
+## Arresto, riavvio e diagnostica
 
 ```bash
-# set PLUGIN_PATH=/path/to/your/plugins in env.development
-docker compose --env-file env.development \
-  -f docker-compose-infra.development.yml \
-  -f docker-compose.development.yml up
+# Arrestare conservando container e dati
+docker compose stop
+# Riavviare
+docker compose start
+# Applicare modifiche e ricostruire
+docker compose up -d --build
+# Rimuovere solo container/rete del progetto conservando tutti i volumi
+docker compose down
+# Log dei servizi applicativi
+docker compose logs --tail=100 aisc-backend aisc-eval-worker keycloak
 ```
 
-**Develop the core apps** (infra in Docker, apps running locally):
+Non usare `down -v` se si vogliono conservare i dati. Il progetto predefinito si chiama `aisc-team-local`, separato dal precedente stack locale `aisc-team`. Non sono necessari nomi fissi dei container né reti o volumi esterni. Per eseguire copie indipendenti usare `docker compose -p <nome> ...` e porte `AISC_PORT` diverse. Lo stack principale non usa i vecchi file Compose di sviluppo/staging.
 
-```bash
-docker compose --env-file env.development -f docker-compose-infra.development.yml up
-# then run backend/webapp/eval from your IDE (see .vscode/ and .run/)
-```
+I sorgenti dei plugin vengono scaricati solo a runtime. `def_plugins/` è una cartella locale ignorata da Git e dal contesto di build; non serve consegnarla. Le vecchie copie in `aisc-presentation/plugin_sources/` sono state rimosse dalla distribuzione.
 
-Full instructions, including how to tag a release so new images get published,
-are in **[docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)**.
+## Verifiche
 
----
+Gli esiti della verifica di questa consegna sono riportati in [docs/HANDOFF_VALIDATION.md](docs/HANDOFF_VALIDATION.md). I test usano un progetto Compose separato e volumi nuovi, senza eliminare quelli esistenti.
 
-## ⚠️ Current limitations & roadmap
-
-The platform currently assumes that both the AI system under test and the test
-data are **uploaded into the platform**:
-
-- **Models** are uploaded files stored in the platform's object storage (the web
-  UI currently accepts `.onnx`). Assessing a system that runs in your own
-  infrastructure, through the API it already exposes, is not yet supported as a
-  first-class concept; some evaluation plugins (e.g. StrongREJECT) approximate it
-  by taking an API key or base URL in their own configuration.
-- **Datasets** must be uploaded through the webapp. Test sets that already live
-  in your own permanent storage (S3-compatible, Azure Blob, GCS, ...) cannot yet
-  be attached by reference.
-
-Note that the platform's *own* infrastructure is already fully configurable at
-deployment time: object storage is any S3-compatible endpoint (`S3_URL`,
-`S3_USER`, `S3_PASSWORD`, `S3_*_BUCKET`), the database is any PostgreSQL instance
-(`DB_*`), and the broker/cache likewise (`MQ_*`, `REDIS_*`).
-
-**What we are doing about it:** we are introducing **connection profiles**:
-configure your storage and your system's API endpoint once, then create datasets
-by reference and register models as endpoints, with evaluations connecting
-directly to your infrastructure at run time and credentials stored encrypted,
-write-only. Progress is tracked in
-[lux-ai-factory/aisc#52](https://github.com/lux-ai-factory/aisc/issues/52).
-
----
-
-## Contributing
-
-We welcome community contributions! Please read our
-[CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-By submitting contributions, you agree to the [Individual CLA](<AISC ICLA (Individuals).txt>)
-(or the [Entity CLA](<AISC CCLA (Entities).txt>)) and license your work under
-[Apache 2.0](LICENSE.md).
-
----
-
-## License
-
-This project is licensed under the [Apache License 2.0](LICENSE.md).
-© 2024–2026 Université du Luxembourg and Luxembourg Institute of Science and Technology.
+Per sviluppo e architettura vedere [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md). Licenze e avvisi originali restano nei rispettivi file `LICENSE.md` e `NOTICE.md`.

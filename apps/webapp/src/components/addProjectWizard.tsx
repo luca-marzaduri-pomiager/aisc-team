@@ -1,3 +1,4 @@
+import { packageLabel } from "../utils/packageLabel";
 import {
     Box,
     Button,
@@ -413,7 +414,7 @@ export default function AddProjectWizard({
                             const selected = !!selectedPlugins[pkg.name];
 
                             return (
-                                <Grid key={pkg.name} size={{ xs: 12, sm: 6, md: 4 }}>
+                                <Grid key={packageLabel(pkg.name)} size={{ xs: 12, sm: 6, md: 4 }}>
                                     <Card
                                         onClick={() =>
                                             setSelectedPlugins(prev => ({
@@ -433,7 +434,7 @@ export default function AddProjectWizard({
                                         <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
                                             <Box sx={{ flex: 1 }}>
                                                 <Typography variant="subtitle1" fontWeight={600} color="text.primary">
-                                                    {pkg.name}
+                                                    {packageLabel(pkg.name)}
                                                 </Typography>
 
                                                 <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>

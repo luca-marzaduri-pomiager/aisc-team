@@ -1,0 +1,29 @@
+:8005 {
+    handle /api/v1/internal/* {
+        respond "Internal service only" 403
+    }
+    handle /api/* {
+        reverse_proxy aisc-backend:8000
+    }
+    handle /admin* {
+        reverse_proxy aisc-backend:8000
+    }
+    handle /static/* {
+        reverse_proxy aisc-backend:8000
+    }
+    handle /auth/* {
+        reverse_proxy keycloak:8080
+    }
+    handle /controls* {
+        reverse_proxy controls-web:3000
+    }
+    handle /qualification* {
+        reverse_proxy qualification-web:3000
+    }
+    handle /flower/* {
+        reverse_proxy aisc-eval-flower:5555
+    }
+    handle {
+        reverse_proxy aisc-webapp:80
+    }
+}

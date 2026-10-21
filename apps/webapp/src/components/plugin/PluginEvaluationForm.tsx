@@ -1,3 +1,4 @@
+import { packageLabel } from "../../utils/packageLabel";
 import { useQuery } from '@tanstack/react-query';
 import { getPluginInputDefinitions, getProject, getComponentModels, getEvaluationInputsTemplate } from "../../api/api.tsx";
 import { Plugin, PluginConfig, PluginInputDefinition, AIComponent, PluginInputValue } from "../../models/models.tsx";
@@ -249,7 +250,7 @@ export default function PluginEvaluationForm({
                             {plugin.display_name || plugin.name}
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                            <Chip label={plugin.package_name} size="small" color="primary" variant="filled" />
+                            <Chip label={packageLabel(plugin.package_name)} size="small" color="primary" variant="filled" />
                             <Chip label={`v${plugin.version}`} size="small" color="info" variant="outlined" />
                         </Box>
                     </Box>

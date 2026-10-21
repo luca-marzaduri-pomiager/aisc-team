@@ -1,3 +1,4 @@
+import { packageLabel } from "../utils/packageLabel";
 import {
   Button,
   Dialog,
@@ -134,7 +135,7 @@ export default function PluginInstallDialog() {
 
         <Typography sx={{ mt: 2 }}>
           <strong>Package:</strong>{' '}
-          <code>{pkg ?? 'unknown'}</code>
+          <code>{pkg ? packageLabel(pkg) : 'unknown'}</code>
         </Typography>
 
         <Typography sx={{ mt: 1 }}>
