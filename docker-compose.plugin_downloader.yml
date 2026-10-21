@@ -1,0 +1,29 @@
+services:
+  plugin-downloader:
+    image: alpine:latest
+    container_name: plugin-downloader
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        apk --no-cache add git
+
+        cd /downloads
+
+        for repo in \
+          aisc-plugin-performance \
+          aisc-plugin-data-evaluation \
+          aisc-plugin-fairness \
+          aisc-plugin-langbite \
+          aisc-plugin-llm-eval \
+          aisc-plugin-strongreject \
+          aisc-plugin-explitest
+        do
+          if [ -d "$$repo/.git" ]; then
+            cd $$repo && git pull origin && cd /downloads
+          else
+            git clone https://github.com/lux-ai-factory/$$repo.git
+          fi
+        done
+    volumes:
+      - ${PLUGIN_PATH:?PLUGIN_PATH is required}:/downloads

@@ -1,0 +1,7 @@
+<!doctype html><html lang="it"><meta charset="utf-8"><title>Plugin AISC</title>
+<main><h1>Plugin della demo</h1><p>I plugin predefiniti vengono scaricati, installati e verificati automaticamente.
+Un errore di un plugin non impedisce l'avvio degli altri. Aggiungi il pacchetto desiderato al progetto e configurane gli input.</p>
+<p>Gli eventuali servizi LLM richiedono modelli, endpoint o chiavi personali. Consulta il README per le condizioni
+della dipendenza esterna <a href="https://github.com/serval-uni-lu/llm_eval">llm_eval</a>, scaricata soltanto nei volumi locali.</p>
+<pre id="status">Caricamento stato...</pre></main>
+<script>fetch('/plugin-status.json').then(r=>r.json()).then(data=>{document.getElementById('status').textContent=data.plugins.map(p=>`${p.id}: ${p.status}${p.error?' — '+p.error:''}`).join('\n')}).catch(()=>{document.getElementById('status').textContent='Stato non disponibile. Consulta docker compose logs plugin-downloader.'})</script></html>

@@ -1,0 +1,39 @@
+[project]
+name = "aisc-backend"
+version = "0.3.0"
+description = "Backend for AISC"
+authors = [
+    { name = "Contributor 01", email = "contributor01@example.invalid" },
+    { name = "Contributor 02", email = "contributor02@example.invalid" },
+    { name = "Contributor 03", email = "contributor03@example.invalid" },
+]
+maintainers = [
+    { name = "Université du Luxembourg" },
+    { name = "Luxembourg Institute of Science and Technology (LIST)" },
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3==1.42.7",
+    "celery[redis]>=5.6.3",
+    "django>=5.2.7,<6",
+    "django-allauth[headless-spec]>=65.19.4",
+    "django-cors-headers>=4.9.0",
+    "django-ninja>=1.7.1",
+    "django-ninja-jwt>=5.4.5",
+    "environs>=15.2.0",
+    "pandas>=3.0.6",
+    "psycopg[binary]>=3.3.6",
+    "pyarrow>=25.0.1",
+    "uvicorn>=0.53.0",
+    "whitenoise>=6.12.0",
+    "jsonschema>=4.26.0",
+    "cryptography>=50.0.1",
+    "aisc-plugin-manager>=0.3.0",
+    "aisc-plugin-interface>=0.3.0",
+    "httpx>=0.28.1",
+    "immudb-py>=1.5.0",
+]
+
+[tool.uv.sources]
+aisc-plugin-manager = { git = "https://github.com/lux-ai-factory/aisc-plugin-manager", tag = "v0.3.0" }

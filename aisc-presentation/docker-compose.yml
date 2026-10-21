@@ -1,0 +1,308 @@
+# Presentation adaptation: local builds and automatic plugins in runtime volumes.
+name: aisc-presentation
+
+x-python-build: &python-build
+  context: .
+  dockerfile: deploy/Python.Dockerfile
+
+x-runtime: &runtime
+  DJANGO_SECRET_KEY: demo-only-secret-key-do-not-use-in-production
+  INTERNAL_API_KEY: demo-only-internal-api-key
+  CELERY_BROKER_URL: amqp://demo:demo-presentation@rabbitmq:5672//
+  REDIS_BACKEND_URL: redis://redis:6379/0
+  PLUGIN_PATH: /app/plugins
+  PACKAGE_REGISTRY_URL: ""
+  PACKAGE_REGISTRY_INDEX: ""
+  PACKAGE_REGISTRY_USER: ""
+  PACKAGE_REGISTRY_PASSWORD: ""
+  API_URL: http://aisc-backend:8000
+  API_PREFIX: /api/v1/internal
+  PYTHONPATH: /plugin-packages
+  MQ_USERNAME: demo
+  MQ_PASSWORD: demo-presentation
+  MQ_HOST: rabbitmq
+  REDIS_HOST: redis
+  AISC_PLUGIN_RUNTIME_ROOT: /plugin-runtime
+
+services:
+  caddy:
+    image: caddy:2.10.2
+    ports: ["127.0.0.1:${AISC_PORT:-8090}:8090"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/plugins.html:/docs/plugins.html:ro
+      - plugin_runtime:/plugin-runtime:ro
+    depends_on:
+      aisc-webapp: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+      controls-web: {condition: service_healthy}
+      qualification-web: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8090/]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:14-alpine
+    environment: {POSTGRES_USER: demo, POSTGRES_PASSWORD: demo-presentation, POSTGRES_DB: aisc}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U demo -d aisc"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment: {RABBITMQ_DEFAULT_USER: demo, RABBITMQ_DEFAULT_PASS: demo-presentation}
+    volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, "yes"]
+    volumes: ["redis_data:/data"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: pgsty/minio
+    command: server /data --console-address :9001
+    environment: {MINIO_ROOT_USER: demo-storage, MINIO_ROOT_PASSWORD: demo-presentation}
+    volumes: ["minio_data:/data"]
+    healthcheck:
+      test: [CMD, mc, ready, local]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  make-buckets:
+    image: pgsty/minio
+    depends_on:
+      minio: {condition: service_healthy}
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        mc alias set demo http://minio:9000 demo-storage demo-presentation
+        mc mb --ignore-existing demo/datasets
+        mc mb --ignore-existing demo/models
+        mc mb --ignore-existing demo/artifacts
+
+  immudb:
+    image: codenotary/immudb:1.11.1
+    environment: {IMMUDB_ADMIN_PASSWORD: "DemoPresentation1!", IMMUDB_FORCE_ADMIN_PASSWORD: "true", IMMUDB_DIR: /var/lib/immudb}
+    volumes: ["immudb_data:/var/lib/immudb"]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.3
+    environment:
+      PUBLIC_URL: http://localhost:${AISC_PORT:-8090}
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_BOOTSTRAP_ADMIN_USERNAME: demo-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: demo-presentation
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: demo
+      KC_DB_PASSWORD: demo-presentation
+      KC_HEALTH_ENABLED: "true"
+    entrypoint: /bin/bash
+    command:
+      - -ec
+      - |
+        mkdir -p /opt/keycloak/data/import
+        sed 's|$${PUBLIC_URL}|'"$$PUBLIC_URL"'|g' /tmp/realm.json > /opt/keycloak/data/import/aisc.json
+        exec /opt/keycloak/bin/kc.sh start-dev --import-realm --proxy-headers=xforwarded
+    volumes: ["./deploy/realm.json:/tmp/realm.json:ro"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9000; printf \"GET /auth/health/ready HTTP/1.0\\r\\n\\r\\n\" >&3; grep -q \"200 OK\" <&3'"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 40s
+
+  aisc-backend:
+    build:
+      <<: *python-build
+      args: {APP: backend}
+    command: [python, /deploy/backend.py]
+    environment:
+      <<: *runtime
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: aisc
+      DB_USER: demo
+      DB_PASSWORD: demo-presentation
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      S3_URL: http://minio:9000
+      S3_USER: demo-storage
+      S3_PASSWORD: demo-presentation
+      AUTH_ENABLED: "true"
+      KEYCLOAK_ISSUER: http://localhost:${AISC_PORT:-8090}/auth/realms/aisc
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/aisc/protocol/openid-connect/certs
+      BACKEND_CORS_ALLOWED_ORIGINS: http://localhost:${AISC_PORT:-8090}
+      BACKEND_CRSF_TRUSTED_ORIGINS: http://localhost:${AISC_PORT:-8090}
+      IMMUDB_URL: immudb:3322
+      IMMUDB_ADMIN_PASSWORD: "DemoPresentation1!"
+      DEMO_ADMIN_PASSWORD: demo-presentation
+    volumes: ["plugins_data:/app/plugins:ro", "plugin_runtime:/plugin-runtime:ro"]
+    depends_on:
+      plugin-downloader: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      make-buckets: {condition: service_completed_successfully}
+      rabbitmq: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      immudb: {condition: service_started}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/openapi.json',timeout=5)"]
+      interval: 10s
+      timeout: 7s
+      retries: 40
+      start_period: 30s
+
+  aisc-webapp:
+    build: ./apps/webapp
+    environment:
+      APP_API_URL: http://localhost:${AISC_PORT:-8090}
+      APP_KEYCLOAK_URL: http://localhost:${AISC_PORT:-8090}/auth
+      APP_CATALOG_URL: http://localhost:${AISC_PORT:-8090}/plugins-help
+      APP_SHOW_PLUGIN_VISUALIZATION: "true"
+      APP_SHOW_CELERY_TASKS: "true"
+    depends_on:
+      aisc-backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  aisc-eval-worker:
+    build:
+      <<: *python-build
+      args: {APP: eval}
+    command: [celery, -A, "aisc_eval.celery_worker:celery_app", worker, --loglevel=info, --concurrency=2]
+    environment: *runtime
+    volumes: ["plugins_data:/app/plugins:ro", "plugin_runtime:/plugin-runtime:ro"]
+    depends_on:
+      aisc-backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, "celery -A aisc_eval.celery_worker:celery_app inspect ping -d celery@$$HOSTNAME --timeout 5"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  aisc-eval-flower:
+    build:
+      <<: *python-build
+      args: {APP: eval}
+    command: [celery, -A, "aisc_eval.celery_worker:celery_app", flower, --url_prefix=flower]
+    environment: *runtime
+    volumes: ["plugins_data:/app/plugins:ro", "plugin_runtime:/plugin-runtime:ro"]
+    depends_on:
+      aisc-eval-worker: {condition: service_started}
+
+  controls-pdf:
+    build: ./apps/controls/services/pdf_renderer
+
+  controls-migrate:
+    build:
+      context: ./apps/controls
+      args: {NEXT_BASE_PATH: /controls}
+    command: [sh, -ec, "npx prisma migrate deploy && npx prisma db seed"]
+    environment: {DATABASE_URL: "postgresql://demo:demo-presentation@postgres:5432/controls?schema=public"}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  controls-web:
+    build:
+      context: ./apps/controls
+      args: {NEXT_BASE_PATH: /controls}
+    environment:
+      DATABASE_URL: postgresql://demo:demo-presentation@postgres:5432/controls?schema=public
+      PDF_RENDERER_URL: http://controls-pdf:8005
+      AISC_BACKEND_URL: http://aisc-backend:8000
+      AISC_PLATFORM: "1"
+    depends_on:
+      controls-migrate: {condition: service_completed_successfully}
+      controls-pdf: {condition: service_started}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/controls').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+
+  qualification-pdf:
+    build: ./apps/qualification/services/system_card_renderer
+
+  qualification-llm:
+    build: ./apps/qualification/services/llm
+    environment:
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${QUALIFICATION_LLM_MODEL:-mistral/mistral-large-latest}
+
+  qualification-migrate:
+    build:
+      context: ./apps/qualification
+      args: {NEXT_BASE_PATH: /qualification}
+    command: [sh, -ec, "npx prisma migrate deploy"]
+    environment: {DATABASE_URL: "postgresql://demo:demo-presentation@postgres:5432/qualification?schema=public"}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  qualification-web:
+    build:
+      context: ./apps/qualification
+      args: {NEXT_BASE_PATH: /qualification}
+    command: [npx, next, start, -p, "3000"]
+    environment:
+      DATABASE_URL: postgresql://demo:demo-presentation@postgres:5432/qualification?schema=public
+      LLM_SERVICE_URL: http://qualification-llm:4000
+      SYSTEM_CARD_RENDERER_URL: http://qualification-pdf:8005
+      AISC_BACKEND_URL: http://aisc-backend:8000
+    depends_on:
+      qualification-migrate: {condition: service_completed_successfully}
+      qualification-pdf: {condition: service_started}
+      qualification-llm: {condition: service_started}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/qualification').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+
+  plugin-downloader:
+    build:
+      <<: *python-build
+      args: {APP: backend}
+    entrypoint: [python, /deploy/bootstrap_plugins.py]
+    environment:
+      UV_HTTP_TIMEOUT: "180"
+      UV_INDEX_STRATEGY: unsafe-best-match
+      UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+      GIT_TERMINAL_PROMPT: "0"
+    volumes:
+      - plugins_data:/app/plugins
+      - plugin_runtime:/plugin-runtime
+      - uv_cache:/root/.cache/uv
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  minio_data:
+  immudb_data:
+  plugins_data:
+  plugin_packages:
+  plugin_runtime:
+  uv_cache:

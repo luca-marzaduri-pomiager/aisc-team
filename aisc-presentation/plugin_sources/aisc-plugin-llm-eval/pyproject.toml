@@ -1,0 +1,31 @@
+[project]
+name = "aisc-plugin-llm-eval"
+version = "0.2.2"
+description = "AISC plugin for evaluating LLMs using heuristic and LLM-judge metrics"
+readme = "README.md"
+authors = [
+    { name = "Contributor 04" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "aisc-plugin-interface @ file:///shared/plugin-interface",
+    "llm-eval-framework @ git+https://github.com/serval-uni-lu/llm_eval@46b3e4081b83e673f2c488e742ae34af8471df69",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "ruff>=0.15.7",
+    "ty>=0.0.25",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

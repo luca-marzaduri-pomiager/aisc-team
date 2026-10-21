@@ -1,0 +1,141 @@
+/*
+ * Main application styles for the AISC web application
+ * Contains styles for the root container, logos, animations, and utility classes
+ */
+
+/* Root container styles
+ * Sets maximum width and centers content with padding
+ */
+#root {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 2rem;
+  /*text-align: center;*/
+}
+
+/* Logo styles
+ * Configures size and hover effects for logos
+ * Includes transition for smooth filter changes
+ */
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+/* Logo hover effects
+ * Adds purple glow effect on hover for default logo
+ */
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+
+/* React logo specific hover effect
+ * Adds blue glow effect on hover for React logo
+ */
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+/* Logo spin animation
+ * Defines 360-degree rotation animation
+ */
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Animation application
+ * Applies infinite spin animation to second logo
+ * Only applies if user hasn't set reduced motion preference
+ */
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+/* Card component styles
+ * Adds padding to card containers
+ */
+.card {
+  padding: 2em;
+}
+
+/* Documentation link styles
+ * Sets muted text color for documentation links
+ */
+.read-the-docs {
+  color: #888;
+}
+
+
+
+.project-card {
+  /*I put only 50% width for now because 100% looked awkward with just a name*/
+  width: 50%;
+  padding: 12px 16px;
+  margin: 8px 25%;
+  background-color: #4591FB;
+
+  border-radius: 12px;
+
+  color: white;
+  font-weight: 500;
+}
+
+.project-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  background: linear-gradient(135deg, #4591FB, #1E0072);
+}
+
+
+
+.plugin-eval-card {
+  /*width: 50%;*/
+  border: 2px solid #4591FB;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  /*background: white;*/
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.plugin-eval-card.selected {
+  background: linear-gradient(135deg, #4591FB, #0048ff);
+  border: 3px solid #00e676;
+  color: white;
+}
+
+.plugin-eval-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plugin-eval-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.plugin-eval-body {
+  margin-top: 16px;
+  padding-left: 36px;
+  padding-right: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.plugin-eval-card.selected .plugin-eval-body label,
+.plugin-eval-card.selected .plugin-eval-body .MuiSelect-select {
+  color: white;
+}

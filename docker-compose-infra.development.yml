@@ -1,0 +1,183 @@
+services:
+  # Reverse proxy
+  caddy:
+    image: caddy:2.10.2
+    container_name: caddy
+    restart: always
+    ports:
+      - "443:8005"
+      - "${CADDY_HOST_PORT:-80}:8005"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,Z
+    environment:
+      LOG_FILE: "/data/access.log"
+      CADDY_DOMAIN: ${CADDY_DOMAIN}
+      CADDY_PORT: "8005"
+      CADDY_ENVIRONMENT: ${CADDY_ENVIRONMENT}
+      CADDY_KEYCLOAK_PATH: /auth
+    networks:
+      - backend
+      - frontend
+    # depends_on:
+    #   - aisc-backend
+
+  # MinIO object storage service
+  minio:
+    image: pgsty/minio
+    container_name: minio
+    volumes:
+      - minio_data:/data # Persistent storage
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_USER} # MinIO root username
+      MINIO_ROOT_PASSWORD: ${S3_PASSWORD} # MinIO root password
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - backend
+
+  # MinIO bucket initialization service
+  make_buckets:
+    image: pgsty/minio
+    depends_on:
+      minio:
+        condition: service_healthy # Wait for MinIO to be ready
+    environment:
+      MINIO_ROOT_USER: ${S3_USER} # MinIO credentials for bucket creation
+      MINIO_ROOT_PASSWORD: ${S3_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set minio http://minio:9000 ${S3_USER} ${S3_PASSWORD} &&
+      /usr/bin/mc mb --ignore-existing minio/datasets;
+      /usr/bin/mc mb --ignore-existing minio/artifacts;
+      /usr/bin/mc mb --ignore-existing minio/models &&
+      exit 0;
+      "
+    networks:
+      - backend
+
+  # RabbitMQ Message queue to send the jobs
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq # Persistent storage
+    networks:
+      - backend
+
+  # Redis collects the results.
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data # Persistent storage
+    networks:
+      - backend
+    command: redis-server --protected-mode no --appendonly yes --appendfsync everysec
+
+  # PostgreSQL database service
+  postgres:
+    image: postgres:14-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persistent storage
+      # Creates the `controls` DB (apps/controls) on a fresh volume.
+      - ./init/controls-db.sql:/docker-entrypoint-initdb.d/10-controls-db.sql:ro,Z
+      # Creates the `qualification` DB (apps/qualification) on a fresh volume.
+      - ./init/qualification-db.sql:/docker-entrypoint-initdb.d/20-qualification-db.sql:ro,Z
+      # Creates the `keycloak` DB (used by the keycloak service) on a fresh volume.
+      - ./init/keycloak.sql:/docker-entrypoint-initdb.d/30-keycloak.sql:ro,Z
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # Keycloak — identity & access management (single login / auth for all apps)
+  keycloak:
+    # Pin a version. VERIFY the latest stable at https://www.keycloak.org/downloads
+    image: quay.io/keycloak/keycloak:26.6.3
+    container_name: keycloak
+    # --import-realm imports any realm file in /opt/keycloak/data/import/ on startup,
+    # but ONLY creates realms that don't already exist (existing realms are left untouched).
+    # Render the realm template (API_URL_EXTERNAL substituted) into the import dir at startup.
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        URL="$${API_URL_EXTERNAL:-http://localhost}"
+        mkdir -p /opt/keycloak/data/import
+        sed 's|$${API_URL_EXTERNAL}|'"$$URL"'|g' /tmp/aisc-realm.template.json > /opt/keycloak/data/import/aisc-realm.json
+        exec /opt/keycloak/bin/kc.sh start-dev --import-realm --proxy-headers=xforwarded
+    volumes:
+      # Realm template (rendered at startup, see command above).
+      - ./keycloak/aisc-realm.template.json:/tmp/aisc-realm.template.json:ro
+      - ./keycloak/themes:/opt/keycloak/themes:ro
+    environment:
+      # Base URL used to render redirect URIs in the realm template.
+      API_URL_EXTERNAL: ${API_URL_EXTERNAL}
+      # Same-origin SSO path. Do NOT add X-Forwarded-Prefix in Caddyfile —
+      # with proxy-headers=xforwarded it would double /auth.
+      KC_HTTP_RELATIVE_PATH: /auth
+      # --- first-run admin user for the Keycloak admin console (Keycloak 26+) ---
+      # (For Keycloak < 26 these were KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD.)
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # --- database: the SHARED Postgres server, Keycloak's OWN 'keycloak' database ---
+      KC_DB: postgres                                       # use Postgres as the DB engine
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak   # service-name:port/<the keycloak db>
+      KC_DB_USERNAME: ${POSTGRES_USER}                      # reuse the Postgres credentials
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8081:8080"             # host 8081 (8080 is already taken on this machine) -> Keycloak's 8080
+    depends_on:
+      - postgres                # Keycloak needs its database up first
+    networks:
+      - backend
+
+  # immudb — the tamper-proof AUDIT LOG ledger. Every app's "who did what" lands here (via the backend's
+  # /audit endpoint). Self-contained (its own embedded storage — no external DB needed, unlike Keycloak).
+  # Verified vs docs.immudb.io: gRPC 3322, web console 8080, env vars IMMUDB_*, data dir IMMUDB_DIR.
+  immudb:
+    image: codenotary/immudb:1.11.1     # pinned; latest stable on Docker Hub
+    container_name: immudb
+    environment:
+      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_ADMIN_PASSWORD}   # dev admin password (from env)
+      IMMUDB_FORCE_ADMIN_PASSWORD: "true"               # apply that password at startup (skip change-on-first-login)
+      IMMUDB_DIR: /var/lib/immudb                        # data folder (default ./data) -> the mounted volume
+    volumes:
+      - immudb_data:/var/lib/immudb     # persist the ledger
+    ports:
+      - "3322:3322"             # gRPC — the Django Python SDK connects here
+      - "8086:8080"             # web console (host 8086 -> container 8080; 8080/8081 already taken)
+    networks:
+      - backend
+
+
+volumes:
+  immudb_data: # Persistent storage for the immudb ledger
+  minio_data: # Persistent storage for MinIO
+  postgres_data: # Persistent storage for PostgreSQL
+  rabbitmq_data: # Persistent storage for RabbitMQ
+  redis_data: # Persistent storage for Redis
+
+networks:
+  backend:
+  frontend:

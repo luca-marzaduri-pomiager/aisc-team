@@ -1,0 +1,22 @@
+{
+  "realm": "aisc", "enabled": true, "sslRequired": "none",
+  "registrationAllowed": false, "loginWithEmailAllowed": true,
+  "roles": {"realm": [{"name":"admin"},{"name":"primary-user"}]},
+  "clients": [{
+    "clientId":"aisc-webapp", "enabled":true, "publicClient":true,
+    "standardFlowEnabled":true, "directAccessGrantsEnabled":true,
+    "redirectUris":["${PUBLIC_URL}/*"], "webOrigins":["${PUBLIC_URL}"],
+    "attributes":{"pkce.code.challenge.method":"S256"},
+    "defaultClientScopes":["web-origins","acr","profile","roles","email"]
+  }],
+  "users": [
+    {"username":"demo", "enabled":true, "emailVerified":true,
+     "email":"demo@example.invalid", "firstName":"Demo", "lastName":"User",
+     "credentials":[{"type":"password","value":"demo-presentation","temporary":false}],
+     "realmRoles":["primary-user"]},
+    {"username":"demo-admin", "enabled":true, "emailVerified":true,
+     "email":"admin@example.invalid", "firstName":"Demo", "lastName":"Admin",
+     "credentials":[{"type":"password","value":"demo-presentation","temporary":false}],
+     "realmRoles":["admin","primary-user"]}
+  ]
+}

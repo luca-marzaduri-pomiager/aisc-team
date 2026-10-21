@@ -1,0 +1,71 @@
+"""
+URL configuration for config project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/5.2/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+
+from django.contrib import admin
+from django.urls import path, include
+
+from ninja import Router
+
+from aisc_backend.routers.app import router as app_router
+from aisc_backend.routers.project import router as project_router
+from aisc_backend.routers.component import router as component_router
+from aisc_backend.routers.evaluation import router as evaluation_router
+from aisc_backend.routers.plugin import router as plugin_router
+from aisc_backend.routers.task import router as task_router
+from aisc_backend.routers.file import router as file_router
+from aisc_backend.routers.stats import router as stats_router
+from aisc_backend.routers.me import router as me_router
+from aisc_backend.routers.audit import router as audit_router
+from aisc_backend.routers.internal import router as internal_router
+from aisc_backend.routers.project_config import router as project_config_router
+
+from aisc_backend.auth.keycloak import KeycloakAuth
+from aisc_backend.utils.logging_ninja_api import LoggingNinjaAPI
+from aisc_backend.utils.exception_handlers import register_exception_handlers
+from config.settings import APP_NAME
+
+# Deny-by-default: KeycloakAuth() is the API-wide default, so EVERY endpoint requires a valid token.
+# (KeycloakAuth lets everyone through while AUTH_ENABLED is False, so dev is unaffected; in prod with
+# AUTH_ENABLED=true it enforces. Any new router is automatically protected — nothing can be forgotten.)
+# The Swagger docs + openapi.json live under /api/ (not /api/v1/) and stay public.
+api = LoggingNinjaAPI(title=APP_NAME, auth=KeycloakAuth())
+register_exception_handlers(api)
+
+v1_router = Router()
+
+v1_router.add_router("/app", app_router)
+# Our endpoints
+v1_router.add_router("/projects", project_router)
+v1_router.add_router("/components", component_router)
+v1_router.add_router("/evaluations", evaluation_router)
+v1_router.add_router("/plugins", plugin_router)
+v1_router.add_router("/tasks", task_router)
+v1_router.add_router("/files", file_router)
+v1_router.add_router("/stats", stats_router)
+v1_router.add_router("/me", me_router)
+v1_router.add_router("/audit", audit_router)
+v1_router.add_router("/project/settings", project_config_router)
+
+api.add_router("/v1/", v1_router)
+api.add_router("/v1/internal", internal_router)
+
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("_allauth/", include("allauth.headless.urls")),
+    path("api/", api.urls),
+]
